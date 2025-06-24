@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DSC Engine Interface</title>
+    <script src="https://cdn.jsdelivr.net/npm/web3@1.7.0/dist/web3.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        select, input, button { margin: 5px; padding: 5px; }
+        #output { margin-top: 20px; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <h1>DSC Engine Interface</h1>
+    <button onclick="connectMetaMask()">Connect MetaMask</button>
+    <p>Connected Account: <span id="account">Not connected</span></p>
+    
+    <h2>Select Action</h2>
+    <select id="endpoint" onchange="updateForm()">
+        <option value="">Select an endpoint</option>
+        <option value="deposit-collateral">Deposit Collateral</option>
+        <option value="mint-dsc">Mint DSC</option>
+        <option value="redeem-collateral">Redeem Collateral</option>
+        <option value="burn-dsc">Burn DSC</option>
+        <option value="deposit-collateral-and-mint-dsc">Deposit Collateral and Mint DSC</option>
+        <option value="redeem-collateral-for-dsc">Redeem Collateral for DSC</option>
+        <option value="liquidate">Liquidate</option>
+    </select>
+
+    <div id="form"></div>
+    <button id="submit" onclick="submitTransaction()" disabled>Submit Transaction</button>
+
+    <h2>Output</h2>
+    <div id="output"></div>
+
+    <script>
+        let web3;
+        let account;
+
+        async function connectMetaMask() {
+            // Check for MetaMask with retry logic
+            let attempts = 0;
+            const maxAttempts = 5;
+            while (!window.ethereum && attempts < maxAttempts) {
+                attempts++;
+                showOutput(`Attempt ${attempts}: Waiting for MetaMask to load...`);
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+
+            if (!window.ethereum) {
+                showOutput('MetaMask not detected. Please ensure MetaMask is installed and enabled in your browser.');
+                console.error('window.ethereum is undefined. Check browser extensions and settings.');
+                return;
+            }
+
+            try {
+                web3 = new Web3(window.ethereum);
+                const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                account = accounts[0];
+                document.getElementById('account').innerText = account;
+                document.getElementById('submit').disabled = false;
+                showOutput(`Connected to MetaMask with account: ${account}`);
+
+                // Listen for account or chain changes
+                window.ethereum.on('accountsChanged', (accounts) => {
+                    account = accounts[0] || null;
+                    document.getElementById('account').innerText = account || 'Not connected';
+                    document.getElementById('submit').disabled = !account;
+                    showOutput(`Account changed to: ${account || 'None'}`);
+                });
+                window.ethereum.on('chainChanged', () => {
+                    showOutput('Network changed. Please ensure the correct network is selected.');
+                });
+            } catch (error) {
+                showOutput(`MetaMask connection failed: ${error.message}`);
+                console.error('MetaMask connection error:', error);
+            }
+        }
+
+        function updateForm() {
+            const endpoint = document.getElementById('endpoint').value;
+            const formDiv = document.getElementById('form');
+            formDiv.innerHTML = '';
+
+            if (!endpoint) return;
+
+            const forms = {
+                'deposit-collateral': `
+                    <input type="text" id="token_address" placeholder="Token Address" required>
+                    <input type="number" id="amount" placeholder="Amount" required>
+                `,
+                'mint-dsc': `
+                    <input type="number" id="amount" placeholder="Amount" required>
+                `,
+                'redeem-collateral': `
+                    <input type="text" id="token_address" placeholder="Token Address" required>
+                    <input type="number" id="amount" placeholder="Amount" required>
+                `,
+                'burn-dsc': `
+                    <input type="number" id="amount" placeholder="Amount" required>
+                `,
+                'deposit-collateral-and-mint-dsc': `
+                    <input type="text" id="token_address" placeholder="Token Address" required>
+                    <input type="number" id="amount" placeholder="Collateral Amount" required>
+                    <input type="number" id="amount_dsc_to_mint" placeholder="DSC to Mint" required>
+                `,
+                'redeem-collateral-for-dsc': `
+                    <input type="text" id="token_address" placeholder="Token Address" required>
+                    <input type="number" id="amount" placeholder="Collateral Amount" required>
+                    <input type="number" id="amount_dsc_to_burn" placeholder="DSC to Burn" required>
+                `,
+                'liquidate': `
+                    <input type="text" id="collateral" placeholder="Collateral Address" required>
+                    <input type="text" id="user" placeholder="User Address" required>
+                    <input type="number" id="debt_to_cover" placeholder="Debt to Cover" required>
+                `
+            };
+
+            formDiv.innerHTML = forms[endpoint] || '';
+        }
+
+        async function submitTransaction() {
+            const endpoint = document.getElementById('endpoint').value;
+            if (!endpoint || !account) {
+                showOutput('Please select an endpoint and connect MetaMask.');
+                return;
+            }
+
+            const data = { user_address: account };
+            if (endpoint === 'deposit-collateral' || endpoint === 'redeem-collateral') {
+                data.token_address = document.getElementById('token_address').value;
+                data.amount = parseInt(document.getElementById('amount').value);
+            } else if (endpoint === 'mint-dsc' || endpoint === 'burn-dsc') {
+                data.amount = parseInt(document.getElementById('amount').value);
+            } else if (endpoint === 'deposit-collateral-and-mint-dsc') {
+                data.token_address = document.getElementById('token_address').value;
+                data.amount = parseInt(document.getElementById('amount').value);
+                data.amount_dsc_to_mint = parseInt(document.getElementById('amount_dsc_to_mint').value);
+            } else if (endpoint === 'redeem-collateral-for-dsc') {
+                data.token_address = document.getElementById('token_address').value;
+                data.amount = parseInt(document.getElementById('amount').value);
+                data.amount_dsc_to_burn = parseInt(document.getElementById('amount_dsc_to_burn').value);
+            } else if (endpoint === 'liquidate') {
+                data.collateral = document.getElementById('collateral').value;
+                data.user = document.getElementById('user').value;
+                data.debt_to_cover = parseInt(document.getElementById('debt_to_cover').value);
+            }
+
+            try {
+                const response = await fetch(`http://localhost:8000/${endpoint}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+
+                if (response.ok) {
+                    const tx = result.transaction;
+                    tx.from = account;
+                    tx.value = tx.value ? tx.value.toString() : '0';
+                    tx.gas = tx.gas.toString();
+                    tx.gasPrice = tx.gasPrice.toString();
+
+                    const txHash = await window.ethereum.request({
+                        method: 'eth_sendTransaction',
+                        params: [tx]
+                    });
+                    showOutput(`Transaction sent: ${txHash}`);
+                } else {
+                    showOutput(`Backend error: ${JSON.stringify(result)}`);
+                    console.error('Backend response:', result);
+                }
+            } catch (error) {
+                showOutput(`Transaction error: ${error.message}`);
+                console.error('Transaction error:', error);
+            }
+        }
+
+        function showOutput(message) {
+            document.getElementById('output').innerText = message;
+        }
+    </script>
+</body>
+</html>

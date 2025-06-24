@@ -1,0 +1,3 @@
+[submodule "Blockchain-Foundry-StableToken/lib/chainlink"]
+	path = Blockchain-Foundry-StableToken/lib/chainlink
+	url = https://github.com/smartcontractkit/chainlink
